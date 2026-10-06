@@ -1,0 +1,533 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tablero de Bodega</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Barlow:wght@400;500;600&display=swap">
+<style>
+/* Layout: pantalla de bodega 16:9 — barra superior; a la izquierda el frente de Recepción
+   en 4 carriles numerados por prioridad; a la derecha, separado, el frente de Envíos. */
+:root{
+  color-scheme: dark;
+  --bg:#0e1316;
+  --panel:#161d21;
+  --card:#1d262b;
+  --line:#2a353b;
+  --fg:#eef2f3;
+  --muted:#8d9ca4;
+  --p1:#ff7a45;          /* 1 · web pagada en caja */
+  --p2:#35c9c1;          /* 2 · mostrador (pagada) */
+  --p2u:#9fb3bd;         /* 2 · mostrador (sin pagar) */
+  --p3:#b48cff;          /* 3 · DL */
+  --p4:#f3c331;          /* 4 · recoger: amarillo de cinta de piso */
+  --envio:#4fa3f7;
+  --crit:#ff5a4f;
+  --warn:#ffb648;
+  --ok:#4fd18b;
+  --display:"Barlow Condensed","Ubuntu Condensed","Arial Narrow","Liberation Sans Narrow",sans-serif;
+  --body:"Barlow",Ubuntu,system-ui,"Segoe UI",sans-serif;
+}
+html,body{height:100%}
+body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:16px;margin:0}
+.app{display:flex;flex-direction:column;height:100%;padding-inline:16px;padding-block:12px;box-sizing:border-box;gap:10px}
+
+.top{display:flex;align-items:center;gap:20px;flex-wrap:wrap}
+.brand{display:flex;flex-direction:column;line-height:1}
+.brand h1{font-family:var(--display);font-weight:800;font-size:clamp(26px,2.3vw,40px);letter-spacing:.02em;text-transform:uppercase;margin:0}
+.brand small{color:var(--muted);font-size:13px;letter-spacing:.06em;text-transform:uppercase;margin-top:4px}
+.clock{font-family:var(--display);font-weight:700;font-size:clamp(30px,3vw,52px);font-variant-numeric:tabular-nums;margin-left:auto}
+.status{display:flex;flex-direction:column;align-items:flex-end;gap:4px;font-size:13px;color:var(--muted);min-width:0}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--muted);margin-right:6px;vertical-align:middle}
+.dot.live{background:var(--ok);animation:pulse 2s infinite}
+.dot.stale{background:var(--warn)}
+.dot.err{background:var(--crit)}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(79,209,139,.55)}70%{box-shadow:0 0 0 10px rgba(79,209,139,0)}100%{box-shadow:0 0 0 0 rgba(79,209,139,0)}}
+.btns{display:flex;gap:6px}
+.btn{font:600 13px var(--body);color:var(--fg);background:var(--card);border:1px solid var(--line);border-radius:6px;padding:6px 10px;cursor:pointer}
+.btn:hover{border-color:var(--muted)}
+.btn:focus-visible{outline:2px solid var(--p4);outline-offset:2px}
+
+.banner{border:1px solid var(--line);background:var(--panel);border-left:6px solid var(--warn);padding:10px 16px;border-radius:6px;font-size:15px;line-height:1.45}
+.banner b{font-family:var(--display);font-size:20px;letter-spacing:.02em;display:block;margin-bottom:2px}
+.banner.crit{border-left-color:var(--crit)}
+
+/* Dos frentes */
+.board{flex:1;min-height:0;display:flex;flex-direction:column;gap:10px}
+.front-label{font-family:var(--display);font-weight:700;font-size:14px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);display:flex;justify-content:space-between;gap:8px}
+.lanes{flex:3;min-height:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+/* Envíos: franja a lo ancho debajo, órdenes en cuadrícula de izquierda a derecha */
+.lane.envios{flex:2;min-height:0}
+.lane.envios .lane-head{padding-bottom:6px}
+.maxwait.inline{padding:0 0 2px 24px;font-size:15px}
+.maxwait.inline b{font-size:clamp(22px,1.8vw,30px)}
+.lane.envios .list{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));align-content:start;gap:8px}
+
+.lane{background:var(--panel);border:1px solid var(--line);border-radius:8px;display:flex;flex-direction:column;min-height:0;min-width:0;overflow:hidden}
+.lane-head{position:relative;padding:16px 12px 10px;display:flex;align-items:flex-end;gap:10px}
+.lane-head::before{content:"";position:absolute;inset:0 0 auto 0;height:8px;background:repeating-linear-gradient(-45deg,var(--c) 0 14px,var(--bg) 14px 24px)}
+.prio{font-family:var(--display);font-weight:800;font-size:clamp(30px,2.6vw,46px);line-height:.85;color:var(--bg);background:var(--c);border-radius:6px;padding:4px 9px 2px;align-self:stretch;display:flex;align-items:center}
+.lane-title{min-width:0}
+.lane-head h2{font-family:var(--display);font-weight:800;font-size:clamp(20px,1.6vw,28px);text-transform:uppercase;letter-spacing:.03em;margin:0;line-height:1}
+.lane-head .sub{color:var(--muted);font-size:12px;letter-spacing:.04em;margin-top:4px;line-height:1.3}
+.maxwait{padding:0 12px 8px;font-size:13px;color:var(--muted);display:flex;align-items:baseline;gap:6px}
+.maxwait b{font-family:var(--display);font-weight:700;font-size:20px;color:var(--ok);font-variant-numeric:tabular-nums}
+.maxwait b.warn{color:var(--warn)}
+.maxwait b.crit{color:var(--crit)}
+.list-wrap{flex:1;min-height:0;position:relative;display:flex;flex-direction:column}
+.morebelow{position:absolute;left:0;right:0;bottom:0;padding:18px 12px 8px;text-align:center;font:700 14px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--fg);background:linear-gradient(to bottom,transparent,var(--panel) 55%);pointer-events:none}
+.count{margin-left:auto;font-family:var(--display);font-weight:800;font-size:clamp(32px,3vw,54px);line-height:.9;color:var(--c);font-variant-numeric:tabular-nums}
+.key{display:flex;gap:10px;flex-wrap:wrap;padding:0 12px 6px;font-size:12px;color:var(--muted)}
+.key i{font-style:normal;display:inline-flex;align-items:center;gap:5px}
+.sw{width:11px;height:11px;border-radius:3px;display:inline-block}
+.list{flex:1;overflow-y:auto;padding:4px 10px 12px;display:flex;flex-direction:column;gap:8px;min-height:0}
+.empty{color:var(--muted);font-size:15px;padding:18px 6px;text-align:center}
+
+.lane[data-k="p1"]{--c:var(--p1)}
+.lane[data-k="p2"]{--c:var(--p2)}
+.lane[data-k="p3"]{--c:var(--p3)}
+.lane[data-k="p4"]{--c:var(--p4)}
+.lane[data-k="p5"]{--c:var(--envio)}
+
+.card{flex:none;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:10px 12px 10px 14px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;position:relative;overflow:hidden}
+/* Envíos: fila compacta, solo número, marcas y espera */
+.row{flex:none;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:7px 10px;display:flex;align-items:center;gap:8px}
+.row.urg{border-color:var(--crit);box-shadow:0 0 0 1px var(--crit)}
+.row .num{font-size:clamp(21px,1.6vw,27px)}
+.row .mini{display:flex;gap:4px;flex-wrap:nowrap;min-width:0;flex:1;overflow:hidden}
+.row .mini .tag{white-space:nowrap;flex:none}
+.row .age{font-size:clamp(18px,1.4vw,24px);margin-left:auto;white-space:nowrap;flex:none}
+.card::before{content:"";position:absolute;inset:0 auto 0 0;width:5px;background:var(--stripe,transparent)}
+.card.paid-caja{--stripe:var(--p2)}
+.card.unpaid{--stripe:var(--p2u)}
+.card.urg{border-color:var(--crit);box-shadow:0 0 0 1px var(--crit)}
+.num{font-family:var(--display);font-weight:800;font-size:clamp(23px,1.9vw,32px);line-height:1;font-variant-numeric:tabular-nums}
+.age{font-family:var(--display);font-weight:700;font-size:clamp(19px,1.5vw,26px);line-height:1;text-align:right;font-variant-numeric:tabular-nums;color:var(--ok)}
+.age.warn{color:var(--warn)}
+.age.crit{color:var(--crit)}
+.who{font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.qty{font-size:13px;color:var(--muted);text-align:right;white-space:nowrap}
+.tags{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
+.tag{font:600 11px var(--body);letter-spacing:.06em;text-transform:uppercase;padding:3px 7px;border-radius:4px;border:1px solid var(--line);color:var(--muted)}
+.tag.li{color:var(--bg);background:var(--p2u);border-color:transparent}
+.tag.le{color:var(--fg)}
+.tag.urg{background:var(--crit);color:#fff;border-color:transparent}
+.tag.ret{color:var(--warn);border-color:var(--warn)}
+.tag.part{color:var(--p4);border-color:var(--p4)}
+.tag.paid{color:var(--ok);border-color:rgba(79,209,139,.5)}
+.tag.caja{color:var(--bg);background:var(--p2);border-color:transparent}
+.tag.nopay{color:var(--bg);background:var(--p2u);border-color:transparent}
+.lane-err{padding:10px;border:1px dashed var(--crit);border-radius:6px;font-size:14px}
+
+.foot{display:flex;gap:18px;flex-wrap:wrap;color:var(--muted);font-size:12px}
+.foot i{font-style:normal;display:inline-flex;align-items:center;gap:6px}
+
+@media (max-width:1400px){.lanes{grid-template-columns:repeat(2,minmax(0,1fr))}.app{height:auto;min-height:100%}.board,.lanes,.lane.envios{flex:none}.lane{height:60vh}}
+
+@media (max-width:640px){
+  .lanes{grid-template-columns:minmax(0,1fr)}
+  .clock{margin-left:0}
+  .status{align-items:flex-start}
+}
+.setup{border:1px solid var(--line);background:var(--panel);border-left:6px solid var(--p4);border-radius:6px;padding:16px 20px;display:grid;gap:12px;max-width:780px}
+.setup h2{font-family:var(--display);font-weight:800;font-size:26px;margin:0}
+.setup p{margin:0;color:var(--muted);line-height:1.45;font-size:14px;max-width:70ch}
+.setup .fila{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.setup label{display:grid;gap:4px;font-size:13px;color:var(--muted)}
+.setup input{font:500 15px var(--body);color:var(--fg);background:var(--card);border:1px solid var(--line);border-radius:6px;padding:8px 10px;min-width:0}
+.setup input:focus-visible{outline:2px solid var(--p4);outline-offset:1px}
+.setup .acciones{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.setup .msg{font-size:14px;line-height:1.45}
+.setup .msg.err{color:var(--crit)}
+.btn.prim{background:var(--p4);color:var(--bg);border-color:transparent;font-size:15px;padding:8px 14px}
+.banner code{font-size:13px;word-break:break-all;color:var(--fg)}
+@media (max-width:640px){.setup .fila{grid-template-columns:minmax(0,1fr)}}
+/* Diseño A: Envíos como 5ª columna */
+.diseno-a .lanes{grid-template-columns:repeat(5,minmax(0,1fr))}
+.diseno-a .lane.envios .list{display:flex}
+@media (prefers-reduced-motion:reduce){.dot.live{animation:none}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand">
+      <h1>Bodega · Órdenes recibidas</h1>
+      <small>La Electrónica + Los Instrumentos · pendientes de seleccionar</small>
+    </div>
+    <div class="clock" id="clock">--:--</div>
+    <div class="status">
+      <div><span class="dot" id="dot"></span><span id="stateText">Conectando con Zoho Inventory…</span></div>
+      <div class="btns">
+        <button class="btn" id="refresh" type="button">Actualizar ahora</button>
+        <button class="btn" id="cambiarLlave" type="button" hidden>Cambiar llave</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="banner" id="banner" hidden></div>
+
+  <section class="setup" id="setup" hidden>
+    <h2>Conectar el tablero con Zoho Inventory</h2>
+    <p>Pega los datos del Self Client de api-console.zoho.com. El código debe tener el scope <b>ZohoInventory.salesorders.READ</b> y vence en 10 minutos. La llave queda guardada solo en este Chrome.</p>
+    <div class="fila">
+      <label>Centro de datos<input id="sDominio" value="com" autocomplete="off"></label>
+      <label>Código generado<input id="sCodigo" autocomplete="off"></label>
+      <label>Client ID<input id="sId" autocomplete="off"></label>
+      <label>Client Secret<input id="sSecret" type="password" autocomplete="off"></label>
+    </div>
+    <div class="acciones"><button class="btn prim" id="sConectar" type="button">Conectar</button><span class="msg" id="sMsg"></span></div>
+  </section>
+
+  <main class="board" id="board">
+    <div class="front-label"><span>En orden de prioridad</span><span id="tot"></span></div>
+    <div class="lanes">
+      <section class="lane" data-k="p1">
+        <div class="lane-head"><div class="prio">1</div><div class="lane-title"><h2>Cliente aquí</h2><div class="sub">Pedido web · ya pagó en caja</div></div><div class="count" id="c-p1">–</div></div>
+        <div class="maxwait">Espera más larga <b id="w-p1">–</b></div>
+        <div class="list-wrap"><div class="list" id="l-p1"><div class="empty">Cargando…</div></div><div class="morebelow" id="m-p1" hidden></div></div>
+      </section>
+      <section class="lane" data-k="p2">
+        <div class="lane-head"><div class="prio">2</div><div class="lane-title"><h2>Mostrador</h2><div class="sub">Orden hecha en recepción</div></div><div class="count" id="c-p2">–</div></div>
+        <div class="maxwait">Espera más larga <b id="w-p2">–</b></div>
+        <div class="key"><i><span class="sw" style="background:var(--p2)"></span>Pagada en caja</i><i><span class="sw" style="background:var(--p2u)"></span>Sin pagar aún</i></div>
+        <div class="list-wrap"><div class="list" id="l-p2"><div class="empty">Cargando…</div></div><div class="morebelow" id="m-p2" hidden></div></div>
+      </section>
+      <section class="lane" data-k="p3">
+        <div class="lane-head"><div class="prio">3</div><div class="lane-title"><h2>DL</h2><div class="sub">Envío Express</div></div><div class="count" id="c-p3">–</div></div>
+        <div class="maxwait">Espera más larga <b id="w-p3">–</b></div>
+        <div class="list-wrap"><div class="list" id="l-p3"><div class="empty">Cargando…</div></div><div class="morebelow" id="m-p3" hidden></div></div>
+      </section>
+      <section class="lane" data-k="p4">
+        <div class="lane-head"><div class="prio">4</div><div class="lane-title"><h2>Recoger</h2><div class="sub">Pedido web · retira en bodega</div></div><div class="count" id="c-p4">–</div></div>
+        <div class="maxwait">Espera más larga <b id="w-p4">–</b></div>
+        <div class="list-wrap"><div class="list" id="l-p4"><div class="empty">Cargando…</div></div><div class="morebelow" id="m-p4" hidden></div></div>
+      </section>
+    </div>
+    <section class="lane envios" data-k="p5">
+      <div class="lane-head"><div class="prio">5</div><div class="lane-title"><h2>Envíos</h2><div class="sub">Forza · ConectaGuate</div></div><div class="maxwait inline">Espera más larga <b id="w-p5">–</b></div><div class="count" id="c-p5">–</div></div>
+      <div class="list-wrap"><div class="list" id="l-p5"><div class="empty">Cargando…</div></div><div class="morebelow" id="m-p5" hidden></div></div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <i><span class="sw" style="background:var(--ok)"></span>menos de 2 h</i>
+    <i><span class="sw" style="background:var(--warn)"></span>2 h o más</i>
+    <i><span class="sw" style="background:var(--crit)"></span>de un día anterior</i>
+    <i>Dentro de cada carril: urgentes primero, luego la más antigua</i>
+    <i>Se actualiza cada minuto · lun–vie 7:00–19:00 · sáb 8:00–12:00</i>
+    <i id="more"></i>
+  </footer>
+</div>
+
+<script>
+(function(){
+  // ===================== AJUSTES =====================
+  // Puedes dejar la llave aquí escrita, o dejarla vacía y llenarla con el formulario
+  // que aparece en pantalla (se guarda solo en este Chrome).
+  const AJUSTES = {
+    dominio: "com",            // centro de datos de Zoho: com, eu, in...
+    client_id: "",
+    client_secret: "",
+    refresh_token: "",
+    organizacion: "881264969",
+    vista: "6166447000018978130",  // "Recibida - Todos"
+    diseno: "B"                // B = Envíos abajo · A = Envíos como 5ª columna
+  };
+  // Horario de consulta, hora de Guatemala. Domingo = 0 ... Sábado = 6.  [hora_inicio, hora_fin]
+  const HORARIO = { 1:[7,19], 2:[7,19], 3:[7,19], 4:[7,19], 5:[7,19], 6:[8,12] };
+  const CADA_MS = 60000;
+  // Solo estos campos se guardan y se usan (ni correos, ni teléfonos, ni montos).
+  const CAMPOS = ["salesorder_id","salesorder_number","customer_name","date","created_time",
+    "quantity","paid_status","location_name","delivery_method","order_sub_status","current_sub_status",
+    "cf_shipping_code","cf_shopify_source","cf_payment_gateway","cf_urg","cf_retener"];
+  // ===================================================
+
+  const ONLINE_PAID = /tilopay|bank deposit/i;
+  const K_LLAVE = "tablero.llave", K_TOKEN = "tablero.token", K_DATOS = "tablero.datos";
+
+  const $ = id => document.getElementById(id);
+  const S = { data:null, error:null, storedAt:null, enHorario:true };
+
+  // ---------- guardado local (este Chrome) ----------
+  function leerLS(k){ try{ return JSON.parse(localStorage.getItem(k) || "null"); }catch(e){ return null; } }
+  function guardarLS(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+  function borrarLS(k){ try{ localStorage.removeItem(k); }catch(e){} }
+
+  function llave(){
+    if(AJUSTES.refresh_token && AJUSTES.client_id && AJUSTES.client_secret)
+      return { dominio:AJUSTES.dominio, client_id:AJUSTES.client_id, client_secret:AJUSTES.client_secret, refresh_token:AJUSTES.refresh_token, enArchivo:true };
+    return leerLS(K_LLAVE);
+  }
+
+  // ---------- reloj y horario ----------
+  const fmtClock = new Intl.DateTimeFormat("es-GT",{hour:"2-digit",minute:"2-digit",hourCycle:"h23",timeZone:"America/Guatemala"});
+  function tick(){ $("clock").textContent = fmtClock.format(new Date()); }
+  tick(); setInterval(tick, 1000);
+
+  const DIAS = { Sun:0, Mon:1, Tue:2, Wed:3, Thu:4, Fri:5, Sat:6 };
+  function enHorario(){
+    const p = {};
+    new Intl.DateTimeFormat("en-US",{timeZone:"America/Guatemala",weekday:"short",hour:"2-digit",minute:"2-digit",hourCycle:"h23"})
+      .formatToParts(new Date()).forEach(x => p[x.type] = x.value);
+    const h = HORARIO[DIAS[p.weekday]];
+    const min = Number(p.hour) * 60 + Number(p.minute);
+    return !!h && h[0]*60 <= min && min < h[1]*60;
+  }
+
+  // ---------- Zoho ----------
+  class ErrorZoho extends Error {}
+  const ERROR_RED = "El navegador no pudo llegar a Zoho. Si hay internet, es el bloqueo del navegador: abre el tablero con el acceso directo de Chrome que indica el LEEME.";
+
+  async function pedirToken(datos, dominio){
+    let r;
+    try{
+      r = await fetch("https://accounts.zoho." + dominio + "/oauth/v2/token", { method:"POST", body:new URLSearchParams(datos) });
+    }catch(e){ throw new ErrorZoho(ERROR_RED); }
+    let j = {};
+    try{ j = await r.json(); }catch(e){}
+    return { status:r.status, j };
+  }
+
+  async function tokenVigente(ll){
+    const t = leerLS(K_TOKEN);
+    if(t && t.vence > Date.now() && t.cid === ll.client_id) return t;
+    const { status, j } = await pedirToken({ refresh_token:ll.refresh_token, client_id:ll.client_id,
+      client_secret:ll.client_secret, grant_type:"refresh_token" }, ll.dominio);
+    if(!j.access_token){
+      const e = new ErrorZoho("La llave de Zoho ya no es válida (" + (j.error || status) + "). Pide una nueva a sistemas y usa “Cambiar llave”.");
+      e.llaveMala = true; throw e;
+    }
+    const nuevo = { token:j.access_token, api:j.api_domain || "https://www.zohoapis.com",
+      vence: Date.now() + (Number(j.expires_in) || 3600) * 1000 - 120000, cid:ll.client_id };
+    guardarLS(K_TOKEN, nuevo);
+    return nuevo;
+  }
+
+  async function ordenes(ll){
+    for(let intento = 1; intento <= 2; intento++){
+      const t = await tokenVigente(ll);
+      const q = new URLSearchParams({ organization_id:AJUSTES.organizacion, customview_id:AJUSTES.vista, per_page:"200" });
+      let r;
+      try{
+        r = await fetch(t.api + "/inventory/v1/salesorders?" + q, { headers:{ Authorization:"Zoho-oauthtoken " + t.token }, cache:"no-store" });
+      }catch(e){ throw new ErrorZoho(ERROR_RED); }
+      let j = {};
+      try{ j = await r.json(); }catch(e){}
+      if(r.status === 401 && intento === 1){ borrarLS(K_TOKEN); continue; }
+      if(r.status === 429) throw new ErrorZoho("Zoho alcanzó el límite diario de consultas de la API. Se reintenta solo.");
+      if(r.status !== 200 || !Array.isArray(j.salesorders))
+        throw new ErrorZoho("Zoho respondió con error " + r.status + ": " + String(j.message || "").slice(0,160));
+      const lista = j.salesorders.map(o => { const x = {}; CAMPOS.forEach(k => x[k] = o[k]); return x; });
+      return { list:lista, more: !!(j.page_context && j.page_context.has_more_page) };
+    }
+  }
+
+  let ultimoIntento = 0, consultando = false;
+  async function consultar(forzar){
+    S.enHorario = enHorario();
+    const ll = llave();
+    if(!ll){ mostrarSetup(true); return; }
+    if(!S.enHorario || consultando) return;
+    if(Date.now() - ultimoIntento < CADA_MS && !(forzar && S.error)) return;
+    ultimoIntento = Date.now(); consultando = true;
+    try{
+      const res = await ordenes(ll);
+      S.data = res; S.storedAt = Date.now(); S.error = null;
+      guardarLS(K_DATOS, { list:res.list, more:res.more, actualizado:S.storedAt });
+      banner(null);
+      $("cambiarLlave").hidden = true;
+    }catch(e){
+      S.error = e.message || "Error desconocido";
+      banner("Problema al leer Zoho Inventory", S.error);
+      $("cambiarLlave").hidden = !(e.llaveMala && !ll.enArchivo);
+      console.warn(new Date().toISOString(), S.error);
+    }finally{ consultando = false; }
+  }
+
+  // ---------- formulario de conexión ----------
+  function mostrarSetup(si){
+    $("setup").hidden = !si;
+    $("board").hidden = si;
+    if(si){ $("dot").className = "dot"; $("stateText").textContent = "Falta conectar con Zoho"; }
+  }
+  $("sConectar").addEventListener("click", async () => {
+    const dominio = $("sDominio").value.trim() || "com";
+    const client_id = $("sId").value.trim(), client_secret = $("sSecret").value.trim(), code = $("sCodigo").value.trim();
+    const msg = $("sMsg");
+    if(!client_id || !client_secret || !code){ msg.className = "msg err"; msg.textContent = "Faltan datos: Client ID, Client Secret y código."; return; }
+    msg.className = "msg"; msg.textContent = "Conectando…";
+    try{
+      const { status, j } = await pedirToken({ code, client_id, client_secret, grant_type:"authorization_code" }, dominio);
+      if(!j.refresh_token) throw new ErrorZoho("Zoho no aceptó los datos (" + (j.error || status) + "). Revisa Client ID y Secret y genera un código nuevo.");
+      guardarLS(K_LLAVE, { dominio, client_id, client_secret, refresh_token:j.refresh_token });
+      borrarLS(K_TOKEN);
+      if(j.access_token) guardarLS(K_TOKEN, { token:j.access_token, api:j.api_domain || "https://www.zohoapis.com",
+        vence: Date.now() + (Number(j.expires_in) || 3600) * 1000 - 120000, cid:client_id });
+      $("sCodigo").value = ""; $("sSecret").value = "";
+      msg.textContent = "";
+      mostrarSetup(false);
+      ultimoIntento = 0;
+      await consultar(true); render();
+    }catch(e){ msg.className = "msg err"; msg.textContent = e.message; }
+  });
+  $("cambiarLlave").addEventListener("click", () => {
+    borrarLS(K_LLAVE); borrarLS(K_TOKEN);
+    $("cambiarLlave").hidden = true; banner(null);
+    mostrarSetup(true);
+  });
+
+  // ---------- tablero (misma lógica de antes) ----------
+  function parseTime(s){
+    if(!s) return null;
+    const d = new Date(String(s).replace(/([+-]\d{2})(\d{2})$/, "$1:$2"));
+    return isNaN(d) ? null : d;
+  }
+  function todayGT(){ return new Intl.DateTimeFormat("en-CA",{timeZone:"America/Guatemala"}).format(new Date()); }
+  function ageText(ms){
+    const m = Math.max(0, Math.floor(ms/60000));
+    if(m < 60) return m + " min";
+    const h = Math.floor(m/60);
+    if(h < 24) return h + " h " + String(m%60).padStart(2,"0");
+    return Math.floor(h/24) + " d " + (h%24) + " h";
+  }
+  function esc(s){ return String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+
+  const isPaid = o => o.paid_status === "paid" || o.paid_status === "partially_paid";
+  function classify(o){
+    const ship = (o.cf_shipping_code || "").trim();
+    const src  = (o.cf_shopify_source || "").toLowerCase();
+    if(/express/i.test(ship) || o.delivery_method === "DL") return "p3";
+    if(ship === "Envío") return "p5";
+    if(src === "shopify_draft_order") return "p2";
+    if(isPaid(o) && !ONLINE_PAID.test(o.cf_payment_gateway || "")) return "p1";
+    return "p4";
+  }
+  function sortFIFO(a,b){
+    const ua = a.cf_urg === "SI", ub = b.cf_urg === "SI";
+    if(ua !== ub) return ua ? -1 : 1;
+    return (parseTime(a.created_time)||0) - (parseTime(b.created_time)||0);
+  }
+  function waitMs(o){ const c = parseTime(o.created_time); return c ? Date.now() - c.getTime() : 0; }
+  function ageClass(o, ms){ return (o.date && o.date < todayGT()) ? "crit" : (ms >= 2*3600000 ? "warn" : ""); }
+  const isLI = o => /instrumentos/i.test(o.location_name || "") || /^LI-/.test(o.salesorder_number || "");
+  const enSel = o => o.order_sub_status === "cs_enselec" || o.current_sub_status === "cs_enselec";
+
+  function rowHTML(o){
+    const ms = waitMs(o), t = [];
+    if(isLI(o)) t.push('<span class="tag li">LI</span>');
+    if(o.cf_urg === "SI") t.push('<span class="tag urg">Urg</span>');
+    if(enSel(o)) t.push('<span class="tag part">En selec.</span>');
+    if(String(o.cf_retener) === "true") t.push('<span class="tag ret">Ret.</span>');
+    return '<article class="row' + (o.cf_urg === "SI" ? " urg" : "") + '">' +
+      '<div class="num">' + esc(o.salesorder_number) + '</div><div class="mini">' + t.join("") + '</div>' +
+      '<div class="age ' + ageClass(o, ms) + '">' + ageText(ms) + '</div></article>';
+  }
+
+  function cardHTML(o, lane){
+    if(lane === "p5") return rowHTML(o);
+    const ms = waitMs(o), gw = o.cf_payment_gateway || "";
+    const tags = [isLI(o) ? '<span class="tag li">LI</span>' : '<span class="tag le">LE</span>'];
+    if(o.cf_urg === "SI") tags.push('<span class="tag urg">Urgente</span>');
+    if(enSel(o)) tags.push('<span class="tag part">En selección</span>');
+    if(String(o.cf_retener) === "true") tags.push('<span class="tag ret">Retenida</span>');
+    let cls = "";
+    if(lane === "p2"){
+      if(isPaid(o)){ cls = " paid-caja"; tags.push('<span class="tag caja">Pagada en caja</span>'); }
+      else { cls = " unpaid"; tags.push('<span class="tag nopay">Sin pagar</span>'); }
+    } else if(o.paid_status === "paid") tags.push('<span class="tag paid">' + (lane === "p1" ? "Pagada en caja" : "Pagada") + '</span>');
+    else if(o.paid_status === "partially_paid") tags.push('<span class="tag paid">Pago parcial</span>');
+    else if(/cash on delivery/i.test(gw)) tags.push('<span class="tag">' + (lane === "p4" ? "Paga al recoger" : "COD") + '</span>');
+    else if(/bank deposit/i.test(gw)) tags.push('<span class="tag ret">Espera depósito</span>');
+    const qty = Number(o.quantity) || 0;
+    return '<article class="card' + cls + (o.cf_urg === "SI" ? " urg" : "") + '">' +
+      '<div class="num">' + esc(o.salesorder_number) + '</div>' +
+      '<div class="age ' + ageClass(o, ms) + '">' + ageText(ms) + '</div>' +
+      '<div class="who">' + esc(o.customer_name) + '</div>' +
+      '<div class="qty">' + qty + (qty === 1 ? " unidad" : " unidades") + '</div>' +
+      '<div class="tags">' + tags.join("") + '</div></article>';
+  }
+
+  const EMPTY = { p1:"Ningún cliente web esperando", p2:"Sin órdenes de mostrador", p3:"Sin envíos express", p4:"Sin pedidos para recoger", p5:"Sin envíos pendientes" };
+  const LANES = Object.keys(EMPTY);
+
+  function markHidden(){
+    LANES.forEach(k => {
+      const list = $("l-" + k), tag = $("m-" + k);
+      const bottom = list.getBoundingClientRect().bottom - 30;
+      let hidden = 0;
+      list.querySelectorAll(".card,.row").forEach(el => { if(el.getBoundingClientRect().top + 20 > bottom) hidden++; });
+      tag.hidden = !hidden || list.scrollTop > 0;
+      tag.textContent = hidden ? "+ " + hidden + (hidden === 1 ? " más reciente abajo" : " más recientes abajo") : "";
+    });
+  }
+  window.addEventListener("resize", () => requestAnimationFrame(markHidden));
+
+  function render(){
+    if(S.data){
+      const b = { p1:[], p2:[], p3:[], p4:[], p5:[] };
+      S.data.list.forEach(o => b[classify(o)].push(o));
+      LANES.forEach(k => {
+        b[k].sort(sortFIFO);
+        $("c-" + k).textContent = b[k].length;
+        $("l-" + k).innerHTML = b[k].length ? b[k].map(o => cardHTML(o, k)).join("") : '<div class="empty">' + EMPTY[k] + '</div>';
+        let worst = null, wms = -1;
+        b[k].forEach(o => { const m = waitMs(o); if(m > wms){ wms = m; worst = o; } });
+        const w = $("w-" + k);
+        w.textContent = worst ? ageText(wms) + " · " + worst.salesorder_number : "nadie esperando";
+        w.className = worst ? ageClass(worst, wms) : "";
+      });
+      $("tot").textContent = LANES.reduce((n,k) => n + b[k].length, 0) + " órdenes recibidas";
+      $("more").textContent = S.data.more ? "Hay más de 200 órdenes recibidas: se muestran las primeras 200." : "";
+      requestAnimationFrame(markHidden);
+    } else if(!S.enHorario){
+      LANES.forEach(k => { $("l-" + k).innerHTML = '<div class="empty">Sin datos todavía. Se actualiza al abrir el horario.</div>'; });
+    }
+    status();
+  }
+
+  function status(){
+    if(!$("setup").hidden) return;
+    const dot = $("dot"), txt = $("stateText");
+    const hora = S.storedAt ? fmtClock.format(new Date(S.storedAt)) : null;
+    if(!S.enHorario){ dot.className = "dot stale"; txt.textContent = "Fuera de horario" + (hora ? " · últimos datos de las " + hora : ""); return; }
+    if(S.error){ dot.className = "dot err"; txt.textContent = hora ? "Sin conexión con Zoho · datos de las " + hora : "Sin datos de Zoho"; return; }
+    if(!S.storedAt){ dot.className = "dot"; txt.textContent = "Conectando con Zoho Inventory…"; return; }
+    const stale = Date.now() - S.storedAt > 3*60000;
+    dot.className = "dot " + (stale ? "stale" : "live");
+    txt.textContent = (stale ? "Sin actualizar desde " : "En vivo · actualizado ") + hora;
+  }
+
+  function banner(title, body){
+    const el = $("banner");
+    if(!title){ el.hidden = true; return; }
+    el.className = "banner crit";
+    el.innerHTML = "<b>" + esc(title) + "</b>" + esc(body);
+    el.hidden = false;
+  }
+
+  function aplicarDiseno(d){
+    if(String(d).toUpperCase() !== "A") return;
+    document.body.classList.add("diseno-a");
+    const env = document.querySelector(".lane.envios"), mw = env.querySelector(".maxwait");
+    mw.classList.remove("inline");
+    env.querySelector(".lane-head").after(mw);
+    document.querySelector(".lanes").appendChild(env);
+  }
+
+  // ---------- arranque ----------
+  aplicarDiseno(AJUSTES.diseno);
+  const previo = leerLS(K_DATOS);   // últimos datos, para no quedar en blanco tras reiniciar
+  if(previo && Array.isArray(previo.list)){ S.data = { list:previo.list, more:!!previo.more }; S.storedAt = previo.actualizado || null; }
+
+  async function ciclo(forzar){ await consultar(forzar); render(); }
+  $("refresh").addEventListener("click", () => ciclo(true));
+  render();
+  ciclo(false);
+  setInterval(() => ciclo(false), 30000);
+})();
+</script>
+
+
+</body>
+</html>
